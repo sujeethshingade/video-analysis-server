@@ -1,0 +1,8 @@
+fastapi
+uvicorn
+boto3
+ffmpeg-python
+openai
+pymongo
+python-dotenv
+pydantic[email]
