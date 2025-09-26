@@ -1,5 +1,6 @@
 import json
 import os
+import logging
 from typing import Dict, List
 
 from .config import get_settings
@@ -7,6 +8,8 @@ from .db_utils import is_processed, mark_processed, save_event_log
 from .s3_utils import download_to_tmp, list_videos_for_employee_date
 from .video_processor import extract_keyframes_every_n_seconds, get_video_duration_seconds, hms
 from .gpt_processor import analyze_video_frames_to_events
+
+logger = logging.getLogger("video-analysis.worker")
 
 
 def load_employee_map() -> Dict[str, Dict[str, str]]:
@@ -71,6 +74,7 @@ def get_employee_info(employee_id: str) -> Dict[str, str]:
 def process_employee_date(employee_id: str, date: str, force: bool = False) -> Dict:
     settings = get_settings()
     videos = list_videos_for_employee_date(employee_id, date)
+    logger.info(f"process_employee_date employee={employee_id} date={date} videos={len(videos)} force={force}")
     processed_count = 0
     skipped: List[str] = []
     errors: List[str] = []
@@ -81,12 +85,16 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
         fname = v["file_name"]
         if not force and is_processed(employee_id, fname):
             skipped.append(fname)
+            logger.info(f"Skip already processed {fname}")
             continue
         try:
             local_path = download_to_tmp(v["key"])
+            logger.info(f"Downloaded {fname}")
             duration_sec = get_video_duration_seconds(local_path)
             duration_hms = hms(duration_sec)
+            logger.info(f"Duration {duration_hms}")
             frames = extract_keyframes_every_n_seconds(local_path, n=settings.frame_interval_sec)
+            logger.info(f"Extracted {len(frames)} frames for {fname}")
             events_doc = analyze_video_frames_to_events(
                 filename=fname,
                 duration_hms=duration_hms,
@@ -96,6 +104,7 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
                 team=emp_info.get("team", "Unknown"),
                 date=date,
             )
+            logger.info(f"GPT events generated for {fname}: {len(events_doc.get('events', []))} events")
 
             save_event_log(
                 {
@@ -109,8 +118,14 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
                 }
             )
             mark_processed(employee_id, fname)
+            logger.info(f"Marked processed {fname}")
             processed_count += 1
         except Exception as e:
+            logger.exception(f"Error processing {fname}: {e}")
             errors.append(f"{fname}: {e}")
 
-    return {"processedCount": processed_count, "skipped": skipped, "errors": errors}
+    summary = {"processedCount": processed_count, "skipped": skipped, "errors": errors}
+    logger.info(
+        f"process_employee_date done employee={employee_id} date={date} processed={processed_count} skipped={len(skipped)} errors={len(errors)}"
+    )
+    return summary

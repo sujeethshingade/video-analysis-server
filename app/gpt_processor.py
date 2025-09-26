@@ -1,6 +1,7 @@
 import json
 from typing import Dict, List, Tuple
 import base64
+import logging
 from openai import OpenAI
 
 from .config import get_settings
@@ -8,11 +9,15 @@ from .video_processor import hms
 
 
 client = None
+logger = logging.getLogger("video-analysis.gpt")
 
 def _get_client():
     global client
     if client is None:
-        client = OpenAI(api_key=get_settings().openai_api_key)
+        api_key = get_settings().openai_api_key
+        if not api_key:
+            raise RuntimeError("OPENAI_API_KEY is not set; set it in environment or .env")
+        client = OpenAI(api_key=api_key)
     return client
 
 
@@ -40,8 +45,13 @@ def analyze_frame(frame_path: str, timestamp: int) -> str:
             messages=msg,
             temperature=0.1,
         )
-        return completion.choices[0].message.content or "No description"
-    except Exception:
+        content = (completion.choices[0].message.content or "").strip()
+        if not content:
+            logger.warning("Video frame description is empty; vision haved no response")
+            return f"At {hms(timestamp)}, the screen shows an application window with typical work UI elements."
+        return content
+    except Exception as ex:
+        logger.exception(f"analyze_frame failed at {hms(timestamp)}: {ex}")
         return f"At {hms(timestamp)}, the screen shows an application window with typical work UI elements."
 
 
@@ -123,11 +133,11 @@ Return only valid JSON with this schema example:
             "StageSequenceID": 1,
             "StartTime": "HH:MM:SS" or "Unknown",
             "EndTime": "HH:MM:SS" or "Unknown",
-            "DurationMin": ""HH:MM:SS" or "Unknown",
+            "DurationMin": "float minutes or \"Unknown\"",
             "ActivityName": "string",
             "ActivityDetail": "string",
             "ProcessStageGeneric": "string",
-            "ToolsUsed": "list",
+            "ToolsUsed": ["string", "string"],
             "FileTypeHandled": "string",
             "CategoryType": "string",
             "ValueType": "string",
@@ -188,15 +198,38 @@ def analyze_video_frames_to_events(
     )
 
     s = get_settings()
-    cl = _get_client()
-    completion = cl.chat.completions.create(
-        model=s.openai_model,
-        messages=[
-            {"role": "system", "content": "You output only valid JSON."},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.0,
-        response_format={"type": "json_object"},
-    )
-    text = completion.choices[0].message.content or "{}"
-    return coerce_json(text)
+    try:
+        cl = _get_client()
+        completion = cl.chat.completions.create(
+            model=s.openai_model,
+            messages=[
+                {"role": "system", "content": "You output only valid JSON."},
+                {"role": "user", "content": prompt},
+            ],
+            temperature=0.0,
+            response_format={"type": "json_object"},
+        )
+        text = (completion.choices[0].message.content or "{}").strip()
+        if not text:
+            logger.warning("Video frame description is empty; vision haved no response")
+            return {
+                "filename": filename,
+                "caseid": f"{employee_id}_{date}",
+                "employeeid": employee_id,
+                "fullname": fullname,
+                "team": team,
+                "date": date,
+                "events": [],
+            }
+        return coerce_json(text)
+    except Exception as ex:
+        logger.exception(f"analyze_video_frames_to_events failed: {ex}")
+        return {
+            "filename": filename,
+            "caseid": f"{employee_id}_{date}",
+            "employeeid": employee_id,
+            "fullname": fullname,
+            "team": team,
+            "date": date,
+            "events": [],
+        }
