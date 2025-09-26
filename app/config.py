@@ -13,11 +13,11 @@ class Settings:
     )
 
     mongodb_uri: str = os.getenv("MONGODB_URI", "")
-    mongodb_db: str = os.getenv("MONGODB_DB", "test")
+    mongodb_db: str = os.getenv("MONGODB_DB", "video-summarizer")
 
     openai_api_key: str = os.getenv("OPENAI_API_KEY", "")
     openai_model: str = os.getenv("OPENAI_MODEL", "gpt-5-mini")
-    vision_enabled: bool = os.getenv("VISION_ENABLED", "false").lower() == "true"
+    vision_enabled: bool = os.getenv("VISION_ENABLED", "true").lower() == "true"
 
     frame_interval_sec: int = int(os.getenv("FRAME_INTERVAL_SEC", "30"))
 

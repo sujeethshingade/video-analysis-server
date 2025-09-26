@@ -19,7 +19,7 @@ FILENAME_RE = re.compile(
     r"(?P<time>\d{6})_"
     r"vt1-"
     r"(?P<employee>[0-9a-f-]+)"
-    r"(?:-(?P<platform>[^-]+)-(?P<session>[0-9a-f-]+))?"  # optional platform + session id
+    r"(?:-(?P<platform>[^-]+)-(?P<session>[0-9a-f-]+))?" 
     r"\.webm$",
     re.IGNORECASE,
 )

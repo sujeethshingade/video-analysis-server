@@ -37,7 +37,14 @@ GET /process/{employee_ids}/{dates}
 - `employee_ids`: one or more IDs separated by commas.
 - `dates`: one or more ISO dates (YYYY-MM-DD) separated by commas.
 
-All combinations (Cartesian product) are processed.
+All combinations (Cartesian product) are processed in nested order: for each employee ID, iterate each date. Concretely, if you pass `empA,empB` and `2025-09-20,2025-09-21`, processing runs in this sequence:
+
+1) empA on 2025-09-20
+2) empA on 2025-09-21
+3) empB on 2025-09-20
+4) empB on 2025-09-21
+
+Within each employee/date, the service lists all S3 videos for that day and processes them in timestamp order. Already-processed files are skipped unless you use the reprocess endpoint.
 
 Example:
 

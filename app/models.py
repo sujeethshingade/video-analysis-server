@@ -32,13 +32,11 @@ class Event(BaseModel):
 
 class EventLog(BaseModel):
     fileName: str
-    videoLink: str
     caseID: str
     employeeID: str
     fullName: str
     team: str
     date: str
-    timeframe: str
     events: List[Event]
     processedAt: datetime
 

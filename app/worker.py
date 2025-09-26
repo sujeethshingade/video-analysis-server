@@ -4,7 +4,7 @@ from typing import Dict, List
 
 from .config import get_settings
 from .db_utils import is_processed, mark_processed, save_event_log
-from .s3_utils import download_to_tmp, list_videos_for_employee_date, presigned_url
+from .s3_utils import download_to_tmp, list_videos_for_employee_date
 from .video_processor import extract_keyframes_every_n_seconds, get_video_duration_seconds, hms
 from .gpt_processor import analyze_video_frames_to_events
 
@@ -18,7 +18,6 @@ def load_employee_map() -> Dict[str, Dict[str, str]]:
     with open(path, "r") as f:
         raw = json.load(f)
 
-    # If the JSON is already a mapping with desired shape, try to normalize minimaly
     if isinstance(raw, dict):
         normalized: Dict[str, Dict[str, str]] = {}
         for k, v in raw.items():
@@ -33,7 +32,6 @@ def load_employee_map() -> Dict[str, Dict[str, str]]:
                 normalized[str(k)] = {"fullName": full or "Unknown", "team": str(team) or "Unknown"}
         return normalized
 
-    # If the JSON is a list (array of rows), convert to the expected map
     if isinstance(raw, list):
         mapping: Dict[str, Dict[str, str]] = {}
         for row in raw:
@@ -59,7 +57,6 @@ def load_employee_map() -> Dict[str, Dict[str, str]]:
 EMP_MAP = load_employee_map()
 
 def get_employee_info(employee_id: str) -> Dict[str, str]:
-    # Re-read each time to reflect any updates without restart
     mapping = load_employee_map()
     if not isinstance(mapping, dict):
         return {"fullName": "Unknown", "team": "Unknown"}
@@ -90,11 +87,8 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
             duration_sec = get_video_duration_seconds(local_path)
             duration_hms = hms(duration_sec)
             frames = extract_keyframes_every_n_seconds(local_path, n=settings.frame_interval_sec)
-            link = presigned_url(v["key"], expires=3600)
-
             events_doc = analyze_video_frames_to_events(
                 filename=fname,
-                videolink=link,
                 duration_hms=duration_hms,
                 frames=frames,
                 employee_id=employee_id,
@@ -106,13 +100,11 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
             save_event_log(
                 {
                     "fileName": fname,
-                    "videoLink": link,
                     "caseID": f"{employee_id}_{date}",
                     "employeeID": employee_id,
                     "fullName": emp_info.get("fullName", "Unknown"),
                     "team": emp_info.get("team", "Unknown"),
                     "date": date,
-                    "timeframe": duration_hms,
                     "events": events_doc.get("events", []),
                 }
             )

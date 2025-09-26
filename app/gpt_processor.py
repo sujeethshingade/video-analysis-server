@@ -26,27 +26,30 @@ def analyze_frame(frame_path: str, timestamp: int) -> str:
         data_url = f"data:image/jpeg;base64,{b64}"
         cl = _get_client()
         msg = [
-            {"role": "system", "content": "Describe this image in detail focusing on work activity."},
+            {"role": "system", "content": "You are analyzing work session screenshots. Identify specific applications, documents, and activities only from what is visible."},
             {
                 "role": "user",
                 "content": [
-                    {"type": "input_text", "text": f"Analyze this video frame at ({timestamp}). Describe: 1) Main subjects/people and their actions, 2) Key objects and environment, 3) Text/graphics visible, 4) Overall scene context. Be specific and concise about what tasks or activities are being performed."},
-                    {"type": "input_image", "image_url": data_url},
+                    {"type": "text", "text": f"Screenshot at {hms(timestamp)}. Identify: 1) Application and window title, 2) Document/file names visible, 3) Specific UI elements (buttons, menus, dialogs), 4) Any readable text (headers, cell values, email subjects), 5) Current user action (typing, clicking, scrolling). Be specific about what you see; do not infer beyond the image."},
+                    {"type": "image_url", "image_url": {"url": data_url}},
                 ],
             },
         ]
-        completion = cl.chat.completions.create(model=s.openai_model, messages=msg, temperature=0.2, max_tokens=200)
+        completion = cl.chat.completions.create(
+            model=s.openai_model,
+            messages=msg,
+            temperature=0.1,
+        )
         return completion.choices[0].message.content or "No description"
     except Exception:
         return f"At {hms(timestamp)}, the screen shows an application window with typical work UI elements."
 
 
-def build_instruction(filename: str, videolink: str, duration_hms: str, transcript_block: str, employee_id: str, fullname: str, team: str, date: str) -> str:
+def build_instruction(filename: str, duration_hms: str, transcript_block: str, employee_id: str, fullname: str, team: str, date: str) -> str:
     instruction = f"""
 Role: You are an AI analyst converting screen recordings of employee work sessions into a fine-grained, process-mining event log. Employees belong to different teams.
 INPUTS:
 - Video file: {filename}
-- Video preview link: {videolink}
 - Video duration: {duration_hms}
 - Transcript: {transcript_block}
 - EmployeeID: {employee_id}
@@ -57,18 +60,17 @@ OBJECTIVES (must do all):
 1. Produce a chronological event log of what the employee did during this {duration_hms} session, with multiple rows (one per detected event).
 2. Each row must capture:
      - What happened (activities, tools, files, details).
-     - When it happened (real timestamps: StartTime, EndTime, Duration_Min).
+     - When it happened (real timestamps: StartTime, EndTime, DurationMin).
      - How it happened (rework, exceptions, switches, idle).
      - So what (value vs waste, AI automation potential).
 3. Work unsupervised: infer activities and generic stages without relying on a fixed taxonomy. If unsure, label as "Unknown" and lower confidence.
 SEGMENTATION RULES:
-- Default block size: 2–10 minutes.
 - Split events when ANY of these occur:
     * Active window/app change (Excel → PDF → Browser).
     * File/document change (different workbook, new filename).
     * Action mode change (typing → scrolling → copy/paste → refresh).
-    * Idle > 5 minutes (mark event as "Idle", IdleTime_Flag=Yes).
-- Merge micro-bursts <60s into adjacent event if same app/context; else keep as MicroTask_Flag=Yes.
+    * Idle > 5 minutes (mark event as "Idle", IdleTimeFlag=Yes).
+- Merge micro-bursts <60s into adjacent event if same app/context; else keep as MicroTaskFlag=Yes.
 - Events must strictly follow chronological order.
 FIELDS TO POPULATE PER EVENT:
 - CaseID: Unique session ID (EmployeeID + Date).
@@ -76,42 +78,41 @@ FIELDS TO POPULATE PER EVENT:
 - Team: {team}
 - Date: {date}
 - StartTime / EndTime: Real timestamps within the video (or "Unknown" if ambiguous).
-- DurationMin: Duration in minutes for this event.
+- DurationMin: Numeric minutes for this event (float).
 - StageSequenceID: Strictly increasing integer sequence for the session.
-- ActivityName: Standardized, short (e.g., "Variance Analysis", "Journal Draft", "Email Thread", "Spreadsheet Cleanup", "Idle", "Unknown").
-- ActivityDetail: 2–3 lines describing what exactly happened.
-- ProcessStageGeneric: One of {"Setup | Data Handling | Analysis | Exception/Break Handling | Adjustments/Entries | Validation/Checks | Reporting/Documentation | Communication | Navigation/Overhead | Idle | Unknown/Other"}.
-- ToolsUsed: List (Excel, Outlook, Browser, PDF viewer, File Explorer, Jira, etc.).
-- FileTypeHandled: Infer by extension/title/headers (Excel, PDF, Email, Report, Other).
-- CategoryType: {"Repetitive | Analytical | Knowledge Work | Communication | Decision-Making | Unknown"}.
-- ValueType: {"Value-Added | Required Non-Value | Pure Waste | Unknown"}.
-- Frequency: Count of similar occurrences in this session.
-- ReworkFlag: Yes if same file/step repeated shortly after.
-- ExceptionFlag: Yes if error/mismatch/break handled.
-- IdleTimeFlag: Yes if >5 min inactivity.
-- SwitchCount: Approx number of app/window/tab switches during event.
-- MicroTaskFlag: Yes if <60s and standalone.
-- ComplianceCheckFlag: Yes/No if compliance validation inferred.
-- ErrorRiskLevel: Low/Medium/High if applicable.
-- AIOpportunityLevel: {"High | Medium | Low"}.
-- EliminationPotential: Yes if duplicative or non-value work.
-- RootCauseTag: If ExceptionFlag=Yes, choose one (Unsettled_Trade | Accrual_Mismatch | FX_Mismatch | Stale_Price | Data_Gap | Manual_Error | System_Error | Other/Unknown).
-- Observation: Note inefficiency or unusual pattern.
-- Confidence: Float 0–1. Drop ≤0.6 if uncertain.
+- ActivityName: Short and standardized (e.g., "Variance Analysis", "Journal Draft", "Email Thread", "Spreadsheet Cleanup", "Idle", "Unknown").
+- ActivityDetail: 2 to 3 sentences describing exactly what happened.
+- ProcessStageGeneric: One of ["Setup","Data Handling","Analysis","Exception/Break Handling","Adjustments/Entries","Validation/Checks","Reporting/Documentation","Communication","Navigation/Overhead","Idle","Unknown/Other"].
+- ToolsUsed: JSON array of strings (e.g., ["Excel","Outlook","Browser","PDF viewer","File Explorer","Jira"]).
+- FileTypeHandled: One of ["Excel","PDF","Email","Report","Other","Unknown"].
+- CategoryType: One of ["Repetitive","Analytical","Knowledge Work","Communication","Decision-Making","Unknown"].
+- ValueType: One of ["Value-Added","Required Non-Value","Pure Waste","Unknown"].
+- Frequency: Integer count of similar occurrences in this session.
+- ReworkFlag: "Yes" if same file/step repeated shortly after else "No".
+- ExceptionFlag: "Yes"/"No".
+- IdleTimeFlag: "Yes"/"No".
+- SwitchCount: Integer approx number of app/window/tab switches during event.
+- MicroTaskFlag: "Yes"/"No".
+- ComplianceCheckFlag: "Yes"/"No".
+- ErrorRiskLevel: "Low"/"Medium"/"High"/"Unknown".
+- AIOpportunityLevel: "High"/"Medium"/"Low".
+- EliminationPotential: "Yes"/"No".
+- RootCauseTag: If ExceptionFlag="Yes", choose one of ["Unsettled_Trade","Accrual_Mismatch","FX_Mismatch","Stale_Price","Data_Gap","Manual_Error","System_Error","Other/Unknown"].
+- Observation: 2 to 3 complete sentences noting inefficiency or unusual patterns.
+- Confidence: Float 0 to 1. Drop ≤0.6 if uncertain.
 QUALITY CHECKS (strict):
 - No overlapping times; StartTime < EndTime.
 - StageSequenceID strictly increasing.
-- Sum(Duration_Min) ≈ {duration_hms} (±5%) including Idle.
+- Sum(DurationMin) ≈ total session duration {duration_hms} (±5%) including Idle.
 - Use "Unknown" if unsure; never hallucinate.
 FORMATTING CONSTRAINTS (strict):
-- Do NOT use ellipses ("..." or "…") or truncated phrases in any field.
-- "ActivityDetail" must be 2–3 COMPLETE sentences (roughly 100–200 characters) with concrete and detailed actions
-- "Observation" must be 2–3 COMPLETE sentences (roughly 100–200 characters) with concrete and detailed observations
+- Do NOT use ellipses or truncated phrases in any field.
+- "ActivityDetail" must be 2 to 3 COMPLETE sentences (roughly 100 to 200 characters) with concrete and detailed actions.
+- "Observation" must be 2 to 3 COMPLETE sentences (roughly 100 to 200 characters) with concrete and detailed observations.
 OUTPUT FORMAT:
-Return only valid JSON with this schema:
+Return only valid JSON with this schema example:
 {{
     "filename": "{filename}",
-    "videolink": "{videolink}",
     "caseid": "{employee_id}_{date}",
     "employeeid": "{employee_id}",
     "fullname": "{fullname}",
@@ -154,7 +155,6 @@ def coerce_json(text: str) -> Dict:
     try:
         return json.loads(text)
     except Exception:
-        # try to find the nearest JSON block
         start = text.find("{")
         end = text.rfind("}")
         if start != -1 and end != -1 and end > start:
@@ -164,7 +164,6 @@ def coerce_json(text: str) -> Dict:
 
 def analyze_video_frames_to_events(
     filename: str,
-    videolink: str,
     duration_hms: str,
     frames: List[Tuple[str, int]],
     employee_id: str,
@@ -172,7 +171,6 @@ def analyze_video_frames_to_events(
     team: str,
     date: str,
 ) -> Dict:
-    # Build transcript from per-frame captions
     lines: List[str] = []
     for fp, ts in frames:
         desc = analyze_frame(fp, ts)
@@ -181,7 +179,6 @@ def analyze_video_frames_to_events(
 
     prompt = build_instruction(
         filename=filename,
-        videolink=videolink,
         duration_hms=duration_hms,
         transcript_block=transcript_block,
         employee_id=employee_id,
@@ -190,7 +187,6 @@ def analyze_video_frames_to_events(
         date=date,
     )
 
-    # Call OpenAI (placeholder minimal text call; adapt for GPT-5-mini when available)
     s = get_settings()
     cl = _get_client()
     completion = cl.chat.completions.create(
@@ -199,6 +195,8 @@ def analyze_video_frames_to_events(
             {"role": "system", "content": "You output only valid JSON."},
             {"role": "user", "content": prompt},
         ],
+        temperature=0.0,
+        response_format={"type": "json_object"},
     )
     text = completion.choices[0].message.content or "{}"
     return coerce_json(text)

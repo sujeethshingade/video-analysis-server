@@ -21,7 +21,6 @@ def process_endpoint(employee_id: str, date: str):
         for dt in dates:
             res = process_employee_date(emp, dt, force=False)
             total_processed += res.get("processedCount", 0)
-            # annotate skipped/errors with context
             all_skipped.extend([f"{emp}:{dt}:{f}" for f in res.get("skipped", [])])
             all_errors.extend([f"{emp}:{dt}:{err}" for err in res.get("errors", [])])
             detail.append({"employeeID": emp, "date": dt, **res})
@@ -43,7 +42,6 @@ def status_endpoint(employee_id: str, date: str):
 
 @app.post("/reprocess/{employee_id}/{date}")
 def reprocess_endpoint(employee_id: str, date: str):
-    # Unmark all files for that date so they can be reprocessed
     vids = list_videos_for_employee_date(employee_id, date)
     for v in vids:
         unmark_processed(employee_id, v["file_name"])
@@ -51,7 +49,7 @@ def reprocess_endpoint(employee_id: str, date: str):
     return {"message": "Reprocessing finished", "count": result.get("processedCount", 0)}
 
 
-# CLI passthrough when running under uvicorn with --employee ... --date ...
+# CLI passthrough when running under uvicorn with -- --employee ... --date ...
 parser = argparse.ArgumentParser(add_help=False)
 parser.add_argument("--employee", dest="employee_id", default=None)
 parser.add_argument("--date", dest="date", default=None)
