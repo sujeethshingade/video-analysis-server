@@ -43,7 +43,6 @@ def analyze_frame(frame_path: str, timestamp: int) -> str:
         completion = cl.chat.completions.create(
             model=s.openai_model,
             messages=msg,
-            temperature=0.1,
         )
         content = (completion.choices[0].message.content or "").strip()
         if not content:
@@ -206,8 +205,6 @@ def analyze_video_frames_to_events(
                 {"role": "system", "content": "You output only valid JSON."},
                 {"role": "user", "content": prompt},
             ],
-            temperature=0.0,
-            response_format={"type": "json_object"},
         )
         text = (completion.choices[0].message.content or "{}").strip()
         if not text:
