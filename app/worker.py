@@ -6,7 +6,7 @@ from typing import Dict, List
 from .config import get_settings
 from .db_utils import is_processed, mark_processed, save_event_log
 from .s3_utils import download_to_tmp, list_videos_for_employee_date
-from .video_processor import extract_keyframes_every_n_seconds, get_video_duration_seconds, hms
+from .video_processor import extract_keyframes_every_n_seconds, get_video_duration_seconds, hms, cleanup_temp_artifacts
 from .gpt_processor import analyze_video_frames_to_events
 
 logger = logging.getLogger("video-analysis.worker")
@@ -87,6 +87,7 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
             skipped.append(fname)
             logger.info(f"Skip already processed {fname}")
             continue
+        local_path = None
         try:
             local_path = download_to_tmp(v["key"])
             logger.info(f"Downloaded {fname}")
@@ -123,6 +124,9 @@ def process_employee_date(employee_id: str, date: str, force: bool = False) -> D
         except Exception as e:
             logger.exception(f"Error processing {fname}: {e}")
             errors.append(f"{fname}: {e}")
+        finally:
+            if local_path:
+                cleanup_temp_artifacts(local_path)
 
     summary = {"processedCount": processed_count, "skipped": skipped, "errors": errors}
     logger.info(

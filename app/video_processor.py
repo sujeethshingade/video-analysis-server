@@ -1,9 +1,13 @@
 import os
 import math
 import tempfile
+import shutil
+import logging
 from typing import List, Tuple
 
 import ffmpeg
+
+logger = logging.getLogger("video-analysis.video")
 
 
 def get_video_duration_seconds(input_path: str) -> float:
@@ -42,3 +46,25 @@ def extract_keyframes_every_n_seconds(input_path: str, n: int = 30) -> List[Tupl
             outputs.append((out_file, ts))
 
     return outputs
+
+
+def temp_output_dir_for(input_path: str) -> str:
+    video_id = os.path.splitext(os.path.basename(input_path))[0]
+    return os.path.join(tempfile.gettempdir(), video_id)
+
+
+def cleanup_temp_artifacts(input_path: str) -> None:
+    try:
+        out_dir = temp_output_dir_for(input_path)
+        if os.path.isdir(out_dir):
+            shutil.rmtree(out_dir, ignore_errors=False)
+            logger.info(f"Deleted temp frames directory: {out_dir}")
+    except Exception as ex:
+        logger.warning(f"Failed to delete frames directory for {input_path}: {ex}")
+
+    try:
+        if os.path.exists(input_path):
+            os.remove(input_path)
+            logger.info(f"Deleted temp video file: {input_path}")
+    except Exception as ex:
+        logger.warning(f"Failed to delete temp video file {input_path}: {ex}")
